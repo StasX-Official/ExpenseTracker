@@ -1,19 +1,78 @@
-from pystyle import Colors, Colorate, Center, Write, Box, Anime, System
 import os
 import sys
 import json
-from datetime import datetime
+import csv
+from datetime import datetime, timedelta
 import time
+try:
+    from pystyle import Colors, Colorate, Center, Write, Box, Anime, System
+except Exception:
+    class _Colors:
+        blue_to_purple = None
+        red_to_yellow = None
+        green_to_blue = None
+        blue_to_cyan = None
+        yellow_to_red = None
+
+    class _Colorate:
+        @staticmethod
+        def Diagonal(_, text):
+            return text
+
+        @staticmethod
+        def Horizontal(_, text):
+            return text
+
+    class _Write:
+        @staticmethod
+        def Print(text, *args, **kwargs):
+            print(text)
+
+        @staticmethod
+        def Input(prompt, *args, **kwargs):
+            try:
+                return input(prompt)
+            except Exception:
+                return ""
+
+    class _Box:
+        @staticmethod
+        def Lines(text):
+            return text
+
+    class _Anime:
+        @staticmethod
+        def Move(*args, **kwargs):
+            return None
+
+    class _System:
+        @staticmethod
+        def Clear():
+            try:
+                os.system('cls' if os.name == 'nt' else 'clear')
+            except Exception:
+                pass
+
+    Colors = _Colors()
+    Colorate = _Colorate()
+    Write = _Write()
+    Box = _Box()
+    Anime = _Anime()
+    System = _System()
 
 def print_banner():
-    banner = """  _____                                  _____               _
+    banner = r"""  _____                                  _____               _
  | ____|_  ___ __   ___ _ __  ___  ___  |_   _| __ __ _  ___| | _____ _ __
  |  _| \ \/ / '_ \ / _ \ '_ \/ __|/ _ \   | || '__/ _` |/ __| |/ / _ \ '__|
  | |___ >  <| |_) |  __/ | | \__ \  __/   | || | | (_| | (__|   <  __/ |
  |_____/_/\_\ .__/ \___|_| |_|___/\___|   |_||_|  \__,_|\___|_|\_\___|_|
             |_|                                                           """
     print(Colorate.Diagonal(Colors.blue_to_purple, banner))
-    time.sleep(1)
+    if not os.environ.get('PYTEST_CURRENT_TEST'):
+        try:
+            time.sleep(1)
+        except Exception:
+            pass
 
 def show_menu_header():
     pass
@@ -32,6 +91,8 @@ def show_menu_options():
     print(Colorate.Horizontal(Colors.blue_to_purple, menu))
 
 def show_loading_animation():
+    if os.environ.get('PYTEST_CURRENT_TEST') or not sys.stdout.isatty():
+        return
     chars = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     for i in range(20):
         print(f"\rLoading {chars[i % len(chars)]}", end="")
@@ -78,10 +139,55 @@ class ExpenseTracker:
         self.user_name = user_name
         self.user_data_path = 'user_data.json'
         self.expenses_file = 'expenses.json'
+        self.incomes_file = 'incomes.json'
+
         show_loading_animation()
+
         self.user_data = self.load_user_data()
         self.expenses = self.load_expenses()
+        self.incomes = self.load_incomes()
         self.banner = print_banner
+
+        try:
+            if not os.path.exists(self.user_data_path):
+                with open(self.user_data_path, 'w') as f:
+                    json.dump(self.user_data, f)
+            if not os.path.exists(self.expenses_file):
+                with open(self.expenses_file, 'w') as f:
+                    json.dump(self.expenses, f)
+            if not os.path.exists(self.incomes_file):
+                with open(self.incomes_file, 'w') as f:
+                    json.dump(self.incomes, f)
+        except Exception:
+            pass
+
+        try:
+            current_month = datetime.now().strftime("%Y-%m")
+            last_applied = self.user_data.get('last_applied_month')
+            if last_applied != current_month:
+                self.apply_monthly_recurring(current_month)
+                self.user_data['last_applied_month'] = current_month
+                self.save_user_data()
+        except Exception:
+            pass
+
+    def load_incomes(self):
+        try:
+            if os.path.exists(self.incomes_file):
+                with open(self.incomes_file, 'r') as file:
+                    return json.load(file)
+            else:
+                return {}
+        except Exception as e:
+            Write.Print(f"\n Error loading incomes: {e}", Colors.red_to_yellow, interval=0.05)
+            return {}
+
+    def save_incomes(self):
+        try:
+            with open(self.incomes_file, 'w') as file:
+                json.dump(self.incomes, file, indent=4)
+        except Exception as e:
+            Write.Print(f"\n Error saving incomes: {e}", Colors.red_to_yellow, interval=0.05)
 
     def load_user_data(self):
         try:
@@ -119,6 +225,33 @@ class ExpenseTracker:
         except Exception as e:
             Write.Print(f"\n Error saving expenses: {e}", Colors.red_to_yellow, interval=0.05)
 
+    def list_months(self):
+        """Return a sorted list of months (YYYY-MM) that have expenses."""
+        try:
+            return sorted(self.expenses.keys())
+        except Exception:
+            return []
+
+    def export_month_to_csv(self, month, file_path=None):
+        """Export the specified month's expenses to a CSV file and return the path.
+
+        Returns None on failure.
+        """
+        try:
+            if month not in self.expenses:
+                raise ValueError("Month not found")
+            if not file_path:
+                file_path = f"{month}_expenses.csv"
+            with open(file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['date', 'category', 'amount'])
+                for exp in self.expenses[month]:
+                    writer.writerow([exp.get('date'), exp.get('category'), exp.get('amount')])
+            return file_path
+        except Exception as e:
+            Write.Print(f"\n Error exporting to CSV: {e}", Colors.red_to_yellow, interval=0.05)
+            return None
+
     def add_expense(self, category, amount, month):
         try:
             expense = {
@@ -133,6 +266,31 @@ class ExpenseTracker:
             Write.Print("\n Expense added successfully!", Colors.green_to_blue, interval=0.05)
         except Exception as e:
             Write.Print(f"\n Error adding expense: {e}", Colors.red_to_yellow, interval=0.05)
+
+    def add_income(self, category, amount, month):
+        """Add an income record for a given month."""
+        try:
+            inc = {
+                'category': category,
+                'amount': float(amount),
+                'date': datetime.now().strftime("%Y-%m-%d")
+            }
+            if month not in self.incomes:
+                self.incomes[month] = []
+            self.incomes[month].append(inc)
+            self.save_incomes()
+            Write.Print("\n Income added successfully!", Colors.green_to_blue, interval=0.05)
+        except Exception as e:
+            Write.Print(f"\n Error adding income: {e}", Colors.red_to_yellow, interval=0.05)
+
+    def get_total_income(self, month):
+        try:
+            if month in self.incomes:
+                return sum(inc['amount'] for inc in self.incomes[month])
+            return 0
+        except Exception as e:
+            Write.Print(f"\n Error getting total income: {e}", Colors.red_to_yellow, interval=0.05)
+            return 0
 
     def remove_expense(self, month, index):
         try:
@@ -158,6 +316,18 @@ class ExpenseTracker:
             Write.Print(f"\n Error viewing expenses by category: {e}", Colors.red_to_yellow, interval=0.05)
             return [], 0
 
+    def view_incomes_by_category(self, month, category):
+        try:
+            if month in self.incomes:
+                filtered = [inc for inc in self.incomes[month] if inc['category'] == category]
+                total = sum(inc['amount'] for inc in filtered)
+                return filtered, total
+            else:
+                return [], 0
+        except Exception as e:
+            Write.Print(f"\n Error viewing incomes by category: {e}", Colors.red_to_yellow, interval=0.05)
+            return [], 0
+
     def get_total_expenses(self, month):
         try:
             if month in self.expenses:
@@ -169,6 +339,164 @@ class ExpenseTracker:
         except Exception as e:
             Write.Print(f"\n Error getting total expenses: {e}", Colors.red_to_yellow, interval=0.05)
             return 0
+
+    def apply_monthly_recurring(self, month):
+        """Apply subscriptions (monthly expenses) and fixed salary to the given month.
+
+        This will add subscription entries as expenses and a fixed salary as income
+        for the month unless already present (best-effort: check identical amounts/categories).
+        """
+        try:
+            subs = self.user_data.get('subscriptions', [])
+            for sub in subs:
+                already = any(e.get('category') == sub.get('category') and float(e.get('amount')) == float(sub.get('amount')) for e in self.expenses.get(month, []))
+                if not already:
+                    self.add_expense(sub.get('category'), float(sub.get('amount')), month)
+
+            fixed = self.user_data.get('fixed_salary')
+            if fixed:
+                already_inc = any(i.get('category') == 'Salary' and float(i.get('amount')) == float(fixed) for i in self.incomes.get(month, []))
+                if not already_inc:
+                    self.add_income('Salary', float(fixed), month)
+        except Exception as e:
+            Write.Print(f"\n Error applying recurring items: {e}", Colors.red_to_yellow, interval=0.05)
+
+    def add_subscription(self, category, amount):
+        try:
+            subs = self.user_data.setdefault('subscriptions', [])
+            subs.append({'category': category, 'amount': float(amount)})
+            self.save_user_data()
+            Write.Print("\n Subscription added.", Colors.green_to_blue, interval=0.05)
+        except Exception as e:
+            Write.Print(f"\n Error adding subscription: {e}", Colors.red_to_yellow, interval=0.05)
+
+    def remove_subscription(self, index):
+        try:
+            subs = self.user_data.get('subscriptions', [])
+            if 0 <= index < len(subs):
+                subs.pop(index)
+                self.save_user_data()
+                Write.Print("\n Subscription removed.", Colors.green_to_blue, interval=0.05)
+            else:
+                Write.Print("\n Invalid subscription index.", Colors.red_to_yellow, interval=0.05)
+        except Exception as e:
+            Write.Print(f"\n Error removing subscription: {e}", Colors.red_to_yellow, interval=0.05)
+
+    def set_fixed_salary(self, amount):
+        try:
+            self.user_data['fixed_salary'] = float(amount)
+            self.save_user_data()
+            Write.Print("\n Fixed salary set.", Colors.green_to_blue, interval=0.05)
+        except Exception as e:
+            Write.Print(f"\n Error setting fixed salary: {e}", Colors.red_to_yellow, interval=0.05)
+
+    def clear_fixed_salary(self):
+        try:
+            if 'fixed_salary' in self.user_data:
+                del self.user_data['fixed_salary']
+                self.save_user_data()
+                Write.Print("\n Fixed salary cleared.", Colors.green_to_blue, interval=0.05)
+        except Exception as e:
+            Write.Print(f"\n Error clearing fixed salary: {e}", Colors.red_to_yellow, interval=0.05)
+
+    def import_csv(self, file_path):
+        """Import transactions from a CSV file.
+
+        CSV columns: date,category,amount,kind (optional: expense|income|subscription|salary)
+        For 'subscription' rows the subscription will be added to user_data and applied for the month of the date.
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as csvfile:
+                reader = csv.DictReader(csvfile)
+                for row in reader:
+                    date = row.get('date')
+                    category = row.get('category') or 'Imported'
+                    amount = float(row.get('amount') or 0)
+                    kind = (row.get('kind') or 'expense').lower()
+                    month = None
+                    try:
+                        month = datetime.strptime(date, '%Y-%m-%d').strftime('%Y-%m')
+                    except Exception:
+                        month = datetime.now().strftime('%Y-%m')
+
+                    if kind == 'income' or kind == 'salary':
+                        self.add_income(category if kind == 'income' else 'Salary', amount, month)
+                    elif kind == 'subscription':
+                        self.add_subscription(category, amount)
+                        self.add_expense(category, amount, month)
+                    else:
+                        self.add_expense(category, amount, month)
+            Write.Print("\n CSV import completed.", Colors.green_to_blue, interval=0.05)
+        except Exception as e:
+            Write.Print(f"\n Error importing CSV: {e}", Colors.red_to_yellow, interval=0.05)
+
+    def analytics(self, period='month', reference=None):
+        """Return analytics totals for expenses, income, and profit.
+
+        period: 'week', 'month', 'year'
+        reference: for 'month' use 'YYYY-MM' (default current), for 'year' use 'YYYY', for 'week' use a date 'YYYY-MM-DD' representing a day in the week.
+        Returns dict: { 'expenses': x, 'income': y, 'profit': y - x, 'breakdown': {category: amount, ...} }
+        """
+        try:
+            if period == 'month':
+                month = reference or datetime.now().strftime('%Y-%m')
+                exp_total = self.get_total_expenses(month)
+                inc_total = self.get_total_income(month)
+                breakdown = {}
+                for m in self.expenses.get(month, []):
+                    breakdown[m.get('category')] = breakdown.get(m.get('category'), 0) + float(m.get('amount', 0))
+                return {'period': month, 'expenses': exp_total, 'income': inc_total, 'profit': inc_total - exp_total, 'breakdown': breakdown}
+
+            if period == 'year':
+                year = reference or datetime.now().strftime('%Y')
+                exp_total = 0
+                inc_total = 0
+                breakdown = {}
+                for month_key, items in self.expenses.items():
+                    if month_key.startswith(year):
+                        for m in items:
+                            amt = float(m.get('amount', 0))
+                            exp_total += amt
+                            breakdown[m.get('category')] = breakdown.get(m.get('category'), 0) + amt
+                for month_key, items in self.incomes.items():
+                    if month_key.startswith(year):
+                        for inc in items:
+                            inc_total += float(inc.get('amount', 0))
+                return {'period': year, 'expenses': exp_total, 'income': inc_total, 'profit': inc_total - exp_total, 'breakdown': breakdown}
+
+            if period == 'week':
+                ref_date = datetime.strptime(reference, '%Y-%m-%d') if reference else datetime.now()
+                start = ref_date
+                start = ref_date - timedelta(days=ref_date.isoweekday() - 1)
+                end = start + timedelta(days=6)
+                exp_total = 0
+                inc_total = 0
+                breakdown = {}
+                for month_key, items in self.expenses.items():
+                    for m in items:
+                        try:
+                            d = datetime.strptime(m.get('date'), '%Y-%m-%d')
+                            if start.date() <= d.date() <= end.date():
+                                amt = float(m.get('amount', 0))
+                                exp_total += amt
+                                breakdown[m.get('category')] = breakdown.get(m.get('category'), 0) + amt
+                        except Exception:
+                            continue
+                for month_key, items in self.incomes.items():
+                    for inc in items:
+                        try:
+                            d = datetime.strptime(inc.get('date'), '%Y-%m-%d')
+                            if start.date() <= d.date() <= end.date():
+                                inc_total += float(inc.get('amount', 0))
+                        except Exception:
+                            continue
+                period_label = f"{start.strftime('%Y-%m-%d')} to {end.strftime('%Y-%m-%d')}"
+                return {'period': period_label, 'expenses': exp_total, 'income': inc_total, 'profit': inc_total - exp_total, 'breakdown': breakdown}
+
+            return {}
+        except Exception as e:
+            Write.Print(f"\n Error calculating analytics: {e}", Colors.red_to_yellow, interval=0.05)
+            return {}
 
     def create_profile(self):
         try:
